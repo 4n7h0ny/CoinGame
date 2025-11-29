@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>The Bosses – Created by Kai Nava</title>
+
+  <style>
+    body {
+      margin: 0;
+      background: #222;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+      user-select: none;
+      font-family: system-ui, sans-serif;
+    }
+    canvas {
+      border: 4px solid white;
+      border-radius: 8px;
+      background: #87ceeb;
+    }
+  </style>
+</head>
+<body>
+<canvas id="game" width="900" height="500"></canvas>
+
+<script>
+/* ======================================================================
+   THE BOSSES – Created by Kai Nava
+   Two-level platformer with characters, coins, enemies, and boss battle
+   ====================================================================== */
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let gameState = "title"; 
+let characterChoice = "bart"; 
+
+const keys = {};
+document.addEventListener("keydown", e => keys[e.code] = true);
+document.addEventListener("keyup", e => keys[e.code] = false);
+
+canvas.addEventListener("click", () => {
+  if (gameState === "win" || gameState === "dead") {
+    resetGame();
+  }
+  if (gameState === "title") {
+    gameState = "characterSelect";
+  }
+});
+
+/* ======================================================================
+   AUDIO SETUP
+   ====================================================================== */
+
+const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+let musicPlaying = false;
+
+function playTone(freq, duration, vol = 0.1) {
+  const osc = audioContext.createOscillator();
+  const gain = audioContext.createGain();
+  osc.connect(gain);
+  gain.connect(audioContext.destination);
+  
+  osc.frequency.value = freq;
+  gain.gain.value = vol;
+  
+  osc.start();
+  osc.stop(audioContext.currentTime + duration);
+}
+
+function startMusic() {
+  if (musicPlaying) return;
+  musicPlaying = true;
+  
+  const melody = [262, 294, 330, 349, 392, 440, 494, 523];
+  let noteIndex = 0;
+  
+  function playNextNote() {
+    if (!musicPlaying || gameState === "title") return;
+    playTone(melody[noteIndex % melody.length], 0.3, 0.05);
+    noteIndex++;
+    setTimeout(playNextNote, 400);
+  }
+  
+  playNextNote();
+}
+
+function playJumpSound() {
+  playTone(440, 0.1, 0.08);
+}
+
+function playCoinSound() {
+  playTone(660, 0.15, 0.1);
+}
+
+function playHitSound() {
+  playTone(150, 0.2, 0.12);
+}
+
+/* ======================================================================
+   PLAYER DEFINITIONS
+   ====================================================================== */
+
+const player = {
+  x: 50,
+  y: 350,
+  vx: 0,
+  vy: 0,
+  r: 18,
+  onGround: false,
+  speed: 6,
+  jumpVel: -14,
+  coins: 0,
+  health: 3,
+  invincible: 0
+};
+
+/* ======================================================================
+   LEVEL DATA
+   ====================================================================== */
+
+let currentLevel = 1;
+
+const boss = {
+  x: 2400,
+  y: 200,
+  health: 10,
+  maxHealth: 10,
+  phase: 1,
+  dir: -1,
+  attackTimer: 0,
+  projectiles: [],
+  active: false
+};
+
+const levels = {
+  1: {
+    width: 2500,
+    platforms: [
+      {x:0, y:430, w:600, h:50},
+      {x:650, y:430, w:300, h:50},
+      {x:1000, y:430, w:400, h:50},
+      {x:1500, y:430, w:350, h:50},
+      {x:1900, y:380, w:300, h:50},
+      {x:2300, y:330, w:200, h:50}
+    ],
+    coins: [
+      {x:300, y:360, taken:false},
+      {x:720, y:360, taken:false},
+      {x:1100, y:360, taken:false},
+      {x:1650, y:360, taken:false},
+      {x:2100, y:300, taken:false}
+    ],
+    enemies: [
+      {x:800, y:380, w:40, h:40, dir:1, min:750, max:900},
+      {x:1600, y:380, w:40, h:40, dir:-1, min:1500, max:1700}
+    ],
+    finish: {x:2400, y:280, w:150, h:20}
+  },
+
+  2: {
+    width: 2800,
+    platforms: [
+      {x:0, y:430, w:600, h:50},
+      {x:700, y:350, w:250, h:40},
+      {x:1100, y:280, w:200, h:40},
+      {x:1500, y:220, w:300, h:40},
+      {x:1900, y:300, w:300, h:40},
+      {x:2350, y:380, w:350, h:40}
+    ],
+    coins: [
+      {x:250, y:360, taken:false},
+      {x:760, y:300, taken:false},
+      {x:1150, y:220, taken:false},
+      {x:1600, y:160, taken:false},
+      {x:2000, y:240, taken:false},
+      {x:2500, y:330, taken:false}
+    ],
+    enemies: [
+      {x:720, y:310, w:40, h:40, dir:1, min:700, max:850},
+      {x:1550, y:190, w:40, h:40, dir:1, min:1500, max:1750},
+      {x:2400, y:350, w:40, h:40, dir:-1, min:2350, max:2600}
+    ],
+    finish: {x:2650, y:340, w:150, h:20}
+  },
+
+  3: {
+    width: 3000,
+    platforms: [
+      {x:0, y:430, w:400, h:50},
+      {x:500, y:430, w:400, h:50},
+      {x:1000, y:430, w:400, h:50},
+      {x:1500, y:430, w:400, h:50},
+      {x:2000, y:430, w:400, h:50},
+      {x:2500, y:430, w:500, h:50}
+    ],
+    coins: [],
+    enemies: [],
+    finish: null,
+    isBossLevel: true
+  }
+};
+
+/* ======================================================================
+   RESET GAME
+   ====================================================================== */
+function resetGame() {
+  player.x = 50;
+  player.y = 350;
+  player.vx = 0;
+  player.vy = 0;
+  player.coins = 0;
+  player.health = 3;
+  player.invincible = 0;
+
+  currentLevel = 1;
+
+  boss.health = boss.maxHealth;
+  boss.phase = 1;
+  boss.projectiles = [];
+  boss.active = false;
+  boss.x = 2400;
+  boss.y = 200;
+
+  for (let lvl of [1,2,3]) {
+    if (!levels[lvl]) continue;
+    for (let c of levels[lvl].coins)
+      c.taken = false;
+
+    for (let e of levels[lvl].enemies) {
+      e.dir = 1;
+      e.x = e.min;
+    }
+  }
+
+  musicPlaying = false;
+  gameState = "title";
+}
+
+/* ======================================================================
+   PHYSICS
+   ====================================================================== */
+
+function applyPhysics() {
+  player.vy += 0.7;
+
+  if (keys["ArrowLeft"]) player.vx = -player.speed;
+  else if (keys["ArrowRight"]) player.vx = player.speed;
+  else player.vx = 0;
+
+  if (player.onGround && keys["Space"]) {
+    player.vy = player.jumpVel;
+    playJumpSound();
+  }
+
+  player.x += player.vx;
+  player.y += player.vy;
+
+  // Check if player fell off the map
+  if (player.y > 600) {
+    player.health = 0;
+    gameState = "dead";
+    musicPlaying = false;
+  }
+
+  if (player.invincible > 0) player.invincible--;
+
+  handlePlatforms();
+  handleCoins();
+  handleEnemies();
+  handleFinish();
+
+  if (currentLevel === 3 && boss.active) {
+    updateBoss();
+  }
+}
+
+/* ======================================================================
+   PLATFORM COLLISIONS
+   ====================================================================== */
+function handlePlatforms() {
+  const platList = levels[currentLevel].platforms;
+  player.onGround = false;
+
+  for (let p of platList) {
+    if (player.x + player.r > p.x &&
+        player.x - player.r < p.x + p.w &&
+        player.y + player.r > p.y &&
+        player.y - player.r < p.y + p.h) {
+
+      if (player.vy > 0 && player.y < p.y) {
+        player.y = p.y - player.r;
+        player.vy = 0;
+        player.onGround = true;
+      }
+    }
+  }
+}
+
+/* ======================================================================
+   COINS
+   ====================================================================== */
+function handleCoins() {
+  for (let c of levels[currentLevel].coins) {
+    if (c.taken) continue;
+    let dx = player.x - c.x;
+    let dy = player.y - c.y;
+    if (dx*dx + dy*dy < 30*30) {
+      c.taken = true;
+      player.coins++;
+      playCoinSound();
+    }
+  }
+}
+
+/* ======================================================================
+   ENEMY COLLISION
+   ====================================================================== */
+function handleEnemies() {
+  for (let e of levels[currentLevel].enemies) {
+    e.x += e.dir * 2;
+    if (e.x < e.min || e.x > e.max) e.dir *= -1;
+
+    if (player.invincible > 0) continue;
+
+    if (player.x + player.r > e.x &&
+        player.x - player.r < e.x + e.w &&
+        player.y + player.r > e.y &&
+        player.y - player.r < e.y + e.h) {
+
+      player.health--;
+      player.invincible = 60;
+      playHitSound();
+
+      if (player.health <= 0) {
+        gameState = "dead";
+        musicPlaying = false;
+      }
+    }
+  }
+}
+
+/* ======================================================================
+   FINISH FLAG
+   ====================================================================== */
+function handleFinish() {
+  const f = levels[currentLevel].finish;
+  if (!f) return;
+
+  if (player.x > f.x && player.x < f.x + f.w &&
+      player.y > f.y && player.y < f.y + f.h) {
+
+    if (currentLevel === 1) {
+      currentLevel = 2;
+      player.x = 50;
+      player.y = 350;
+    } else if (currentLevel === 2) {
+      currentLevel = 3;
+      player.x = 50;
+      player.y = 350;
+      boss.active = true;
+    }
+  }
+}
+
+/* ======================================================================
+   BOSS BATTLE
+   ====================================================================== */
+
+function updateBoss() {
+  boss.attackTimer++;
+
+  // Boss movement
+  boss.x += boss.dir * 1.5;
+  if (boss.x < 2100 || boss.x > 2700) boss.dir *= -1;
+
+  // Phase changes
+  if (boss.health < boss.maxHealth * 0.5 && boss.phase === 1) {
+    boss.phase = 2;
+  }
+
+  // Attack pattern
+  const attackSpeed = boss.phase === 1 ? 80 : 50;
+  
+  if (boss.attackTimer > attackSpeed) {
+    boss.attackTimer = 0;
+    
+    // Shoot projectile toward player
+    const angle = Math.atan2(player.y - boss.y, player.x - boss.x);
+    boss.projectiles.push({
+      x: boss.x,
+      y: boss.y + 30,
+      vx: Math.cos(angle) * 4,
+      vy: Math.sin(angle) * 4,
+      r: 10
+    });
+  }
+
+  // Update projectiles
+  for (let i = boss.projectiles.length - 1; i >= 0; i--) {
+    const p = boss.projectiles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+
+    // Remove off-screen projectiles
+    if (p.x < -50 || p.x > 3050 || p.y < -50 || p.y > 550) {
+      boss.projectiles.splice(i, 1);
+      continue;
+    }
+
+    // Check collision with player
+    if (player.invincible > 0) continue;
+    
+    const dx = player.x - p.x;
+    const dy = player.y - p.y;
+    if (dx*dx + dy*dy < (player.r + p.r) * (player.r + p.r)) {
+      player.health--;
+      player.invincible = 60;
+      playHitSound();
+      boss.projectiles.splice(i, 1);
+
+      if (player.health <= 0) {
+        gameState = "dead";
+        musicPlaying = false;
+      }
+    }
+  }
+
+  // Check if player hits boss (jump on head)
+  if (player.vy > 0 &&
+      player.x > boss.x - 40 && player.x < boss.x + 80 &&
+      player.y + player.r > boss.y - 20 && player.y < boss.y + 20) {
+    
+    boss.health--;
+    player.vy = -10;
+    playTone(800, 0.15, 0.1);
+
+    if (boss.health <= 0) {
+      gameState = "win";
+      musicPlaying = false;
+    }
+  }
+}
+
+/* ======================================================================
+   DRAW FUNCTIONS
+   ====================================================================== */
+
+function drawCharacterBall(x, y, r, type) {
+  ctx.beginPath();
+  if (type === "bart") ctx.fillStyle = "#ffcc00";
+  if (type === "lisa") ctx.fillStyle = "#ffdd55";
+  if (type === "unicorn") ctx.fillStyle = "#ffffff";
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (type === "bart") {
+    ctx.fillStyle = "orange";
+    ctx.fillRect(x - 10, y - r - 8, 20, 10);
+  }
+  if (type === "lisa") {
+    ctx.fillStyle = "yellow";
+    for (let i = 0; i < 8; i++)
+      ctx.fillRect(x - 3 + Math.cos(i * 0.8) * 15,
+                   y - r - 3 + Math.sin(i * 0.8) * 15,
+                   6, 6);
+  }
+  if (type === "unicorn") {
+    ctx.fillStyle = "pink";
+    ctx.beginPath();
+    ctx.moveTo(x, y - r - 10);
+    ctx.lineTo(x + 6, y - r);
+    ctx.lineTo(x - 6, y - r);
+    ctx.fill();
+  }
+}
+
+function drawCoin(c) {
+  if (c.taken) return;
+  ctx.fillStyle = "gold";
+  ctx.beginPath();
+  ctx.arc(c.x, c.y, 12, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawEnemy(e) {
+  ctx.fillStyle = "red";
+  ctx.fillRect(e.x, e.y, e.w, e.h);
+}
+
+function drawBoss(camX) {
+  // Boss body
+  ctx.fillStyle = boss.phase === 2 ? "#8B0000" : "#FF0000";
+  ctx.fillRect(boss.x - camX - 40, boss.y, 80, 80);
+
+  // Boss eyes
+  ctx.fillStyle = "yellow";
+  ctx.fillRect(boss.x - camX - 25, boss.y + 20, 15, 15);
+  ctx.fillRect(boss.x - camX + 10, boss.y + 20, 15, 15);
+
+  // Health bar
+  ctx.fillStyle = "rgba(0,0,0,0.5)";
+  ctx.fillRect(boss.x - camX - 50, boss.y - 30, 100, 15);
+  
+  ctx.fillStyle = boss.health > boss.maxHealth * 0.3 ? "lime" : "red";
+  const healthWidth = (boss.health / boss.maxHealth) * 100;
+  ctx.fillRect(boss.x - camX - 50, boss.y - 30, healthWidth, 15);
+
+  // Projectiles
+  for (let p of boss.projectiles) {
+    ctx.fillStyle = "orange";
+    ctx.beginPath();
+    ctx.arc(p.x - camX, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawHUD() {
+  ctx.fillStyle = "rgba(0,0,0,0.5)";
+  ctx.fillRect(10, 10, 250, 50);
+
+  ctx.fillStyle = "white";
+  ctx.font = "18px sans-serif";
+  ctx.fillText("Coins: " + player.coins, 20, 35);
+  
+  // Health hearts
+  ctx.fillStyle = "red";
+  for (let i = 0; i < player.health; i++) {
+    ctx.fillText("❤", 150 + i * 25, 35);
+  }
+
+  // Level indicator
+  ctx.fillText("Level: " + currentLevel, 20, 55);
+}
+
+function drawLevel() {
+  const lvl = levels[currentLevel];
+  const camX = Math.max(0, Math.min(player.x - 300, lvl.width - canvas.width));
+
+  // platforms
+  ctx.fillStyle = "#3cb371";
+  for (let p of lvl.platforms) {
+    ctx.fillRect(p.x - camX, p.y, p.w, p.h);
+  }
+
+  // coins
+  for (let c of lvl.coins) {
+    drawCoin({x: c.x - camX, y: c.y, taken: c.taken});
+  }
+
+  // enemies
+  for (let e of lvl.enemies) {
+    drawEnemy({x: e.x - camX, y: e.y, w:e.w, h:e.h});
+  }
+
+  // finish
+  const f = lvl.finish;
+  if (f) {
+    ctx.fillStyle = "purple";
+    ctx.fillRect(f.x - camX, f.y, f.w, f.h);
+  }
+
+  // boss
+  if (currentLevel === 3 && boss.active) {
+    drawBoss(camX);
+  }
+
+  // player (with invincibility flicker)
+  if (player.invincible === 0 || player.invincible % 10 < 5) {
+    drawCharacterBall(player.x - camX, player.y, player.r, characterChoice);
+  }
+}
+
+/* ======================================================================
+   TITLE SCREEN
+   ====================================================================== */
+
+function drawTitleScreen() {
+  // Background gradient
+  const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  grad.addColorStop(0, "#1a1a2e");
+  grad.addColorStop(1, "#16213e");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Title
+  ctx.fillStyle = "#FFD700";
+  ctx.strokeStyle = "#FF6B00";
+  ctx.lineWidth = 4;
+  ctx.font = "bold 72px sans-serif";
+  ctx.strokeText("THE BOSSES", 200, 150);
+  ctx.fillText("THE BOSSES", 200, 150);
+
+  // Subtitle
+  ctx.fillStyle = "white";
+  ctx.font = "24px sans-serif";
+  ctx.fillText("Created by Kai Nava", 310, 190);
+
+  // Animated characters
+  const bounce = Math.sin(Date.now() / 300) * 10;
+  drawCharacterBall(300, 300 + bounce, 35, "bart");
+  drawCharacterBall(450, 310 + bounce * 0.7, 35, "lisa");
+  drawCharacterBall(600, 305 + bounce * 1.2, 35, "unicorn");
+
+  // Instructions
+  ctx.fillStyle = "#FFD700";
+  ctx.font = "28px sans-serif";
+  ctx.fillText("Click to Start!", 340, 420);
+
+  // Controls
+  ctx.fillStyle = "rgba(255,255,255,0.7)";
+  ctx.font = "18px sans-serif";
+  ctx.fillText("Arrow Keys to Move  •  Space to Jump", 260, 470);
+}
+
+/* ======================================================================
+   CHARACTER SELECT SCREEN
+   ====================================================================== */
+
+function drawCharacterSelect() {
+  ctx.fillStyle = "#333";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = "white";
+  ctx.font = "32px sans-serif";
+  ctx.fillText("Choose Your Character!", 260, 60);
+
+  drawCharacterBall(200, 250, 35, "bart");
+  drawCharacterBall(450, 250, 35, "lisa");
+  drawCharacterBall(700, 250, 35, "unicorn");
+
+  ctx.font = "20px sans-serif";
+  ctx.fillText("Bart-Ball", 165, 310);
+  ctx.fillText("Lisa-Ball", 420, 310);
+  ctx.fillText("Unicorn-Ball", 645, 310);
+
+  canvas.onclick = function(ev) {
+    const x = ev.offsetX;
+    const y = ev.offsetY;
+
+    if (x > 160 && x < 240) characterChoice = "bart";
+    if (x > 410 && x < 490) characterChoice = "lisa";
+    if (x > 660 && x < 740) characterChoice = "unicorn";
+
+    gameState = "play";
+    startMusic();
+    canvas.onclick = null;
+  };
+}
+
+/* ======================================================================
+   MAIN LOOP
+   ====================================================================== */
+
+function loop() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (gameState === "title") {
+    drawTitleScreen();
+  }
+  else if (gameState === "characterSelect") {
+    drawCharacterSelect();
+  }
+  else if (gameState === "play") {
+    applyPhysics();
+    drawLevel();
+    drawHUD();
+  }
+  else if (gameState === "dead") {
+    ctx.fillStyle = "rgba(0,0,0,0.8)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    ctx.fillStyle = "red";
+    ctx.font = "40px sans-serif";
+    ctx.fillText("Game Over!", 330, 220);
+    
+    ctx.fillStyle = "white";
+    ctx.font = "20px sans-serif";
+    ctx.fillText("You made it to Level " + currentLevel, 320, 260);
+    ctx.fillText("Coins collected: " + player.coins, 340, 290);
+    ctx.fillText("Click to restart", 360, 340);
+  }
+  else if (gameState === "win") {
+    ctx.fillStyle = "rgba(0,0,0,0.8)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Victory text with glow
+    ctx.shadowColor = "lime";
+    ctx.shadowBlur = 20;
+    ctx.fillStyle = "lime";
+    ctx.font = "bold 48px sans-serif";
+    ctx.fillText("YOU DEFEATED THE BOSS!", 160, 220);
+    ctx.shadowBlur = 0;
+    
+    ctx.fillStyle = "#FFD700";
+    ctx.font = "28px sans-serif";
+    ctx.fillText("Total Coins: " + player.coins, 340, 280);
+    
+    ctx.fillStyle = "white";
+    ctx.font = "20px sans-serif";
+    ctx.fillText("Click to play again", 350, 340);
+  }
+
+  requestAnimationFrame(loop);
+}
+
+resetGame();
+loop();
+
+</script>
+</body>
+</html>
