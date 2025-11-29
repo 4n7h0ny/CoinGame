@@ -42,7 +42,15 @@ const keys = {};
 document.addEventListener("keydown", e => keys[e.code] = true);
 document.addEventListener("keyup", e => keys[e.code] = false);
 
-canvas.addEventListener("click", () => {
+async function resumeAudioContext() {
+  if (audioContext.state === "suspended") {
+    await audioContext.resume();
+  }
+}
+
+canvas.addEventListener("click", async () => {
+  await resumeAudioContext();
+
   if (gameState === "win" || gameState === "dead") {
     resetGame();
   }
@@ -443,6 +451,25 @@ function updateBoss() {
       musicPlaying = false;
     }
   }
+
+  // Contact damage if player runs into the boss body
+  const touchingBoss =
+    player.x + player.r > boss.x - 40 &&
+    player.x - player.r < boss.x + 40 &&
+    player.y + player.r > boss.y &&
+    player.y - player.r < boss.y + 80;
+
+  if (touchingBoss && player.invincible === 0) {
+    player.health--;
+    player.invincible = 60;
+    player.vx = boss.dir * 5;
+    playHitSound();
+
+    if (player.health <= 0) {
+      gameState = "dead";
+      musicPlaying = false;
+    }
+  }
 }
 
 /* ======================================================================
@@ -534,6 +561,16 @@ function drawHUD() {
 
   // Level indicator
   ctx.fillText("Level: " + currentLevel, 20, 55);
+
+  if (currentLevel === 3 && boss.active) {
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(canvas.width - 210, 10, 200, 50);
+    ctx.fillStyle = "#FFD700";
+    ctx.font = "16px sans-serif";
+    ctx.fillText("Boss health: " + boss.health + "/" + boss.maxHealth, canvas.width - 200, 35);
+    ctx.fillStyle = "white";
+    ctx.fillText("Avoid fireballs!", canvas.width - 200, 55);
+  }
 }
 
 function drawLevel() {
@@ -641,9 +678,11 @@ function drawCharacterSelect() {
     const x = ev.offsetX;
     const y = ev.offsetY;
 
-    if (x > 160 && x < 240) characterChoice = "bart";
-    if (x > 410 && x < 490) characterChoice = "lisa";
-    if (x > 660 && x < 740) characterChoice = "unicorn";
+    const withinRow = y > 200 && y < 320;
+
+    if (withinRow && x > 160 && x < 240) characterChoice = "bart";
+    if (withinRow && x > 410 && x < 490) characterChoice = "lisa";
+    if (withinRow && x > 660 && x < 740) characterChoice = "unicorn";
 
     gameState = "play";
     startMusic();
