@@ -148,6 +148,8 @@ const player = {
   onGround: false,
   speed: 6,
   jumpVel: -14,
+  maxJumps: 1,
+  jumpsUsed: 0,
   coins: 0,
   health: 3,
   invincible: 0,
@@ -157,7 +159,10 @@ const player = {
   shieldTimer: 0,
   rainbowTrail: 0,
   coinMilestone: 0,
-  helperBuff: 0
+  helperBuff: 0,
+  glide: false,
+  momentum: 0,
+  jumpHeld: false
 };
 
 const characterProfiles = {
@@ -165,13 +170,15 @@ const characterProfiles = {
     label: "Bart-Ball",
     color: "#f2c94c",
     detail: "#e67e22",
-    specialName: "Skate Dash",
-    description: "Burst forward with a slingshot shot and brief invincibility.",
+    specialName: "Skate Whiplash",
+    description: "Chains speed into a whiplash spin shot that pierces foes.",
     special() {
-      player.vx += facingDir * 12;
-      player.shots.push({ x: player.x, y: player.y - 5, vx: facingDir * 12, r: 8, ttl: 50 });
+      const burstSpeed = 14 + player.momentum * 2;
+      player.vx += facingDir * burstSpeed;
+      player.shots.push({ x: player.x, y: player.y - 5, vx: facingDir * 14, r: 9, ttl: 70, pierce: 2 });
       player.invincible = Math.max(player.invincible, 30);
-      playTone(760, 0.15, 0.11);
+      player.momentum = Math.min(player.momentum + 1, 3);
+      playTone(820, 0.2, 0.12);
     }
   },
   lisa: {
@@ -179,10 +186,11 @@ const characterProfiles = {
     color: "#f9d371",
     detail: "#8e44ad",
     specialName: "Sound Shield",
-    description: "Raise a music bubble that blocks hits for a short time.",
+    description: "Shield up and fire a resonant pulse that slows enemies.",
     special() {
       player.invincible = Math.max(player.invincible, 90);
       player.shieldTimer = 90;
+      player.shots.push({ x: player.x, y: player.y - 5, vx: facingDir * 8, r: 10, ttl: 60, slow: true, pierce: 3 });
       playTone(520, 0.25, 0.14);
     }
   },
@@ -190,11 +198,12 @@ const characterProfiles = {
     label: "Unicorn-Ball",
     color: "#a29bfe",
     detail: "#ffeaa7",
-    specialName: "Rainbow Leap",
-    description: "Super jump that leaves a rainbow trail and slows falls.",
+    specialName: "Prism Ascend",
+    description: "Double jump and glide while leaving a slowing prism trail.",
     special() {
       player.vy = -18;
-      player.rainbowTrail = 40;
+      player.rainbowTrail = 50;
+      player.jumpsUsed = Math.max(player.jumpsUsed - 1, 0);
       playTone(900, 0.2, 0.1);
     }
   }
@@ -220,22 +229,22 @@ const totalLevels = 4;
 const bossConfigs = {
   3: {
     name: "Horned Titan",
-    health: 8,
-    maxHealth: 8,
+    health: 10,
+    maxHealth: 10,
     color: "#b23a48",
     accent: "#ffe066",
-    startX: 2400,
-    startY: 200,
+    startX: 2600,
+    startY: 180,
     behavior: "charge"
   },
   4: {
     name: "Neon Drone Queen",
-    health: 12,
-    maxHealth: 12,
+    health: 14,
+    maxHealth: 14,
     color: "#1b98e0",
     accent: "#7cf17c",
-    startX: 2600,
-    startY: 160,
+    startX: 2800,
+    startY: 140,
     behavior: "hover"
   }
 };
@@ -259,102 +268,191 @@ let boss = spawnBoss(3);
 
 const levels = {
   1: {
-    width: 2500,
+    width: 2700,
     platforms: [
-      {x:0, y:430, w:600, h:50},
-      {x:650, y:430, w:300, h:50},
-      {x:1000, y:430, w:400, h:50},
-      {x:1500, y:430, w:350, h:50},
-      {x:1900, y:380, w:300, h:50},
-      {x:2300, y:330, w:200, h:50}
+      {x: 0, y: 430, w: 520, h: 50},
+      {x: 520, y: 370, w: 240, h: 32},
+      {x: 840, y: 320, w: 200, h: 28},
+      {x: 1160, y: 260, w: 240, h: 28},
+      {x: 1460, y: 330, w: 260, h: 34},
+      {x: 1780, y: 420, w: 240, h: 50},
+      {x: 2080, y: 360, w: 220, h: 30},
+      {x: 2380, y: 300, w: 200, h: 30}
+    ],
+    movingPlatforms: [
+      {x: 620, y: 320, w: 180, h: 22, path: [{x: 620, y: 320}, {x: 980, y: 260}], speed: 1.2, target: 1},
+      {x: 1880, y: 360, w: 140, h: 22, path: [{x: 1880, y: 360}, {x: 1880, y: 250}], speed: 1, target: 1}
+    ],
+    jumpPads: [
+      {x: 920, y: 428, w: 80, h: 14, power: -18},
+      {x: 2100, y: 356, w: 60, h: 12, power: -16}
+    ],
+    hazards: [
+      {x: 420, y: 430, w: 80, h: 50},
+      {x: 1320, y: 430, w: 120, h: 50}
     ],
     coins: [
-      {x:300, y:360, taken:false},
-      {x:720, y:360, taken:false},
-      {x:1100, y:360, taken:false},
-      {x:1650, y:360, taken:false},
-      {x:2100, y:300, taken:false}
+      {x: 200, y: 360, taken:false},
+      {x: 620, y: 300, taken:false},
+      {x: 880, y: 260, taken:false},
+      {x: 1240, y: 200, taken:false},
+      {x: 1600, y: 280, taken:false},
+      {x: 1900, y: 320, taken:false},
+      {x: 2440, y: 240, taken:false}
     ],
     enemies: [
-      {x:800, y:380, w:40, h:40, dir:1, min:750, max:900},
-      {x:1600, y:380, w:40, h:40, dir:-1, min:1500, max:1700}
+      {x: 700, y: 340, w: 40, h: 40, dir: 1, min: 620, max: 900},
+      {x: 1500, y: 300, w: 42, h: 42, dir: -1, min: 1460, max: 1700},
+      {x: 2200, y: 330, w: 40, h: 40, dir: 1, min: 2080, max: 2300}
     ],
-    finish: {x:2400, y:280, w:150, h:20}
+    finish: {x: 2550, y: 250, w: 120, h: 22}
   },
 
   2: {
-    width: 2800,
+    width: 3200,
     platforms: [
-      {x:0, y:430, w:600, h:50},
-      {x:700, y:350, w:250, h:40},
-      {x:1100, y:280, w:200, h:40},
-      {x:1500, y:220, w:300, h:40},
-      {x:1900, y:300, w:300, h:40},
-      {x:2350, y:380, w:350, h:40}
+      {x: 0, y: 430, w: 500, h: 50},
+      {x: 520, y: 320, w: 260, h: 30},
+      {x: 840, y: 250, w: 220, h: 30},
+      {x: 1150, y: 190, w: 200, h: 28},
+      {x: 1420, y: 240, w: 260, h: 30},
+      {x: 1750, y: 300, w: 260, h: 30},
+      {x: 2050, y: 360, w: 220, h: 30},
+      {x: 2360, y: 280, w: 200, h: 28},
+      {x: 2600, y: 220, w: 220, h: 26},
+      {x: 2880, y: 170, w: 240, h: 24}
+    ],
+    movingPlatforms: [
+      {x: 620, y: 360, w: 140, h: 20, path: [{x: 620, y: 360}, {x: 620, y: 240}], speed: 1.1, target: 1},
+      {x: 1820, y: 340, w: 160, h: 20, path: [{x: 1820, y: 340}, {x: 2100, y: 200}], speed: 1.4, target: 1}
+    ],
+    jumpPads: [
+      {x: 1080, y: 428, w: 90, h: 14, power: -20},
+      {x: 2280, y: 276, w: 80, h: 12, power: -14}
+    ],
+    hazards: [
+      {x: 400, y: 430, w: 90, h: 50},
+      {x: 1300, y: 430, w: 130, h: 50},
+      {x: 2000, y: 430, w: 110, h: 50}
     ],
     coins: [
-      {x:250, y:360, taken:false},
-      {x:760, y:300, taken:false},
-      {x:1150, y:220, taken:false},
-      {x:1600, y:160, taken:false},
-      {x:2000, y:240, taken:false},
-      {x:2500, y:330, taken:false}
+      {x: 200, y: 360, taken:false},
+      {x: 560, y: 270, taken:false},
+      {x: 940, y: 200, taken:false},
+      {x: 1220, y: 140, taken:false},
+      {x: 1520, y: 180, taken:false},
+      {x: 1840, y: 260, taken:false},
+      {x: 2140, y: 320, taken:false},
+      {x: 2420, y: 220, taken:false},
+      {x: 2700, y: 160, taken:false},
+      {x: 2980, y: 120, taken:false}
     ],
     enemies: [
-      {x:720, y:310, w:40, h:40, dir:1, min:700, max:850},
-      {x:1550, y:190, w:40, h:40, dir:1, min:1500, max:1750},
-      {x:2400, y:350, w:40, h:40, dir:-1, min:2350, max:2600}
+      {x: 560, y: 290, w: 40, h: 40, dir: 1, min: 520, max: 760},
+      {x: 1260, y: 210, w: 42, h: 42, dir: -1, min: 1150, max: 1420},
+      {x: 1900, y: 270, w: 40, h: 40, dir: 1, min: 1750, max: 2100},
+      {x: 2520, y: 250, w: 40, h: 40, dir: -1, min: 2360, max: 2600}
     ],
-    finish: {x:2650, y:340, w:150, h:20}
+    finish: {x: 3020, y: 140, w: 140, h: 22}
   },
 
   3: {
-    width: 3000,
+    width: 3400,
     platforms: [
-      {x:0, y:430, w:350, h:50},
-      {x:450, y:360, w:350, h:40},
-      {x:900, y:300, w:300, h:40},
-      {x:1300, y:260, w:280, h:40},
-      {x:1800, y:320, w:320, h:40},
-      {x:2300, y:400, w:500, h:50}
+      {x: 0, y: 430, w: 360, h: 50},
+      {x: 420, y: 360, w: 280, h: 34},
+      {x: 760, y: 290, w: 260, h: 30},
+      {x: 1100, y: 240, w: 240, h: 28},
+      {x: 1420, y: 200, w: 240, h: 26},
+      {x: 1760, y: 250, w: 260, h: 30},
+      {x: 2100, y: 320, w: 320, h: 40},
+      {x: 2480, y: 380, w: 360, h: 44},
+      {x: 2880, y: 320, w: 360, h: 36}
+    ],
+    movingPlatforms: [
+      {x: 540, y: 300, w: 140, h: 22, path: [{x: 540, y: 300}, {x: 540, y: 180}], speed: 1.2, target: 1},
+      {x: 1680, y: 220, w: 160, h: 24, path: [{x: 1680, y: 220}, {x: 1880, y: 160}], speed: 1.5, target: 1}
+    ],
+    jumpPads: [
+      {x: 920, y: 428, w: 100, h: 14, power: -22},
+      {x: 2280, y: 360, w: 80, h: 14, power: -18}
+    ],
+    hazards: [
+      {x: 360, y: 430, w: 60, h: 50},
+      {x: 1020, y: 430, w: 80, h: 50},
+      {x: 1960, y: 430, w: 120, h: 50},
+      {x: 2720, y: 430, w: 100, h: 50}
     ],
     coins: [
-      {x:180, y:360, taken:false},
-      {x:520, y:300, taken:false},
-      {x:980, y:240, taken:false},
-      {x:1500, y:200, taken:false},
-      {x:1900, y:260, taken:false}
+      {x: 180, y: 360, taken:false},
+      {x: 520, y: 280, taken:false},
+      {x: 820, y: 240, taken:false},
+      {x: 1180, y: 190, taken:false},
+      {x: 1520, y: 140, taken:false},
+      {x: 1820, y: 200, taken:false},
+      {x: 2140, y: 270, taken:false},
+      {x: 2460, y: 340, taken:false},
+      {x: 2760, y: 300, taken:false},
+      {x: 3120, y: 280, taken:false}
     ],
     enemies: [
-      {x:520, y:320, w:40, h:40, dir:1, min:480, max:760},
-      {x:1200, y:260, w:40, h:40, dir:-1, min:1180, max:1400}
+      {x: 620, y: 320, w: 44, h: 44, dir: 1, min: 540, max: 740},
+      {x: 1320, y: 220, w: 44, h: 44, dir: -1, min: 1100, max: 1420},
+      {x: 2040, y: 300, w: 46, h: 46, dir: 1, min: 1760, max: 2140}
     ],
     finish: null,
     isBossLevel: true
   },
 
   4: {
-    width: 3200,
+    width: 3600,
     platforms: [
-      {x:0, y:430, w:400, h:50},
-      {x:500, y:360, w:350, h:40},
-      {x:980, y:300, w:320, h:40},
-      {x:1500, y:250, w:320, h:40},
-      {x:2000, y:200, w:320, h:40},
-      {x:2500, y:170, w:400, h:50}
+      {x: 0, y: 430, w: 360, h: 50},
+      {x: 420, y: 360, w: 260, h: 32},
+      {x: 740, y: 290, w: 260, h: 30},
+      {x: 1060, y: 230, w: 260, h: 28},
+      {x: 1380, y: 180, w: 260, h: 24},
+      {x: 1720, y: 240, w: 240, h: 26},
+      {x: 2040, y: 300, w: 260, h: 30},
+      {x: 2360, y: 360, w: 260, h: 30},
+      {x: 2680, y: 300, w: 260, h: 30},
+      {x: 3000, y: 240, w: 260, h: 28},
+      {x: 3280, y: 200, w: 260, h: 28}
+    ],
+    movingPlatforms: [
+      {x: 560, y: 320, w: 160, h: 22, path: [{x: 560, y: 320}, {x: 560, y: 200}], speed: 1.3, target: 1},
+      {x: 1860, y: 270, w: 160, h: 22, path: [{x: 1860, y: 270}, {x: 2140, y: 190}], speed: 1.5, target: 1},
+      {x: 2800, y: 260, w: 160, h: 22, path: [{x: 2800, y: 260}, {x: 3080, y: 180}], speed: 1.6, target: 1}
+    ],
+    jumpPads: [
+      {x: 960, y: 428, w: 90, h: 14, power: -20},
+      {x: 2200, y: 356, w: 90, h: 14, power: -18},
+      {x: 3200, y: 236, w: 80, h: 12, power: -16}
+    ],
+    hazards: [
+      {x: 360, y: 430, w: 80, h: 50},
+      {x: 1180, y: 430, w: 120, h: 50},
+      {x: 2100, y: 430, w: 130, h: 50},
+      {x: 3020, y: 430, w: 120, h: 50}
     ],
     coins: [
-      {x:150, y:360, taken:false},
-      {x:620, y:290, taken:false},
-      {x:1100, y:240, taken:false},
-      {x:1650, y:190, taken:false},
-      {x:2050, y:140, taken:false},
-      {x:2550, y:120, taken:false}
+      {x: 180, y: 360, taken:false},
+      {x: 520, y: 280, taken:false},
+      {x: 860, y: 220, taken:false},
+      {x: 1200, y: 160, taken:false},
+      {x: 1520, y: 140, taken:false},
+      {x: 1860, y: 200, taken:false},
+      {x: 2180, y: 260, taken:false},
+      {x: 2500, y: 320, taken:false},
+      {x: 2820, y: 260, taken:false},
+      {x: 3140, y: 210, taken:false},
+      {x: 3420, y: 180, taken:false}
     ],
     enemies: [
-      {x:520, y:320, w:40, h:40, dir:1, min:500, max:760},
-      {x:1250, y:260, w:40, h:40, dir:-1, min:1200, max:1400},
-      {x:2100, y:160, w:40, h:40, dir:1, min:2000, max:2300}
+      {x: 600, y: 320, w: 44, h: 44, dir: 1, min: 560, max: 760},
+      {x: 1280, y: 200, w: 44, h: 44, dir: -1, min: 1060, max: 1380},
+      {x: 1900, y: 280, w: 46, h: 46, dir: 1, min: 1720, max: 2140},
+      {x: 2620, y: 300, w: 46, h: 46, dir: -1, min: 2360, max: 2680}
     ],
     finish: null,
     isBossLevel: true
@@ -369,6 +467,7 @@ function resetGame() {
   player.y = 350;
   player.vx = 0;
   player.vy = 0;
+  player.jumpsUsed = 0;
   player.coins = 0;
   player.health = 3;
   player.invincible = 0;
@@ -379,6 +478,9 @@ function resetGame() {
   player.rainbowTrail = 0;
   player.coinMilestone = 0;
   player.helperBuff = 0;
+  player.glide = false;
+  player.momentum = 0;
+  player.jumpHeld = false;
 
   currentLevel = 1;
   retriesLeft = maxLevelRetries;
@@ -393,6 +495,16 @@ function resetGame() {
       e.dir = 1;
       e.x = e.min;
       e.defeated = false;
+      e.slowTimer = 0;
+    }
+    if (levels[numLvl].movingPlatforms) {
+      for (let m of levels[numLvl].movingPlatforms) {
+        m.x = m.path[0].x;
+        m.y = m.path[0].y;
+        m.target = 1;
+        m.vx = 0;
+        m.vy = 0;
+      }
     }
   }
 
@@ -411,6 +523,7 @@ function restartLevel() {
   player.y = 350;
   player.vx = 0;
   player.vy = 0;
+  player.jumpsUsed = 0;
   player.health = 3;
   player.invincible = 0;
   player.shots = [];
@@ -419,11 +532,23 @@ function restartLevel() {
   player.shieldTimer = 0;
   player.rainbowTrail = 0;
   player.helperBuff = 0;
+  player.glide = false;
+  player.momentum = 0;
+  player.jumpHeld = false;
 
   // reset collectibles and enemy positions for current level
   const lvl = levels[currentLevel];
   for (let c of lvl.coins) c.taken = false;
-  for (let e of lvl.enemies) { e.dir = 1; e.x = e.min; e.defeated = false; }
+  for (let e of lvl.enemies) { e.dir = 1; e.x = e.min; e.defeated = false; e.slowTimer = 0; }
+  if (lvl.movingPlatforms) {
+    for (let m of lvl.movingPlatforms) {
+      m.x = m.path[0].x;
+      m.y = m.path[0].y;
+      m.target = 1;
+      m.vx = 0;
+      m.vy = 0;
+    }
+  }
 
   // reset boss state when retrying boss levels
   if (levels[currentLevel].isBossLevel) {
@@ -440,17 +565,108 @@ function restartLevel() {
    PHYSICS
    ====================================================================== */
 
+function applyCharacterTraits() {
+  player.maxJumps = characterChoice === "unicorn" ? 2 : 1;
+  if (characterChoice === "bart") {
+    player.speed = 6 + player.momentum * 0.6;
+  } else if (characterChoice === "lisa") {
+    player.speed = 6;
+  } else {
+    player.speed = 6.2;
+  }
+}
+
+function updateMovingPlatforms() {
+  const moves = levels[currentLevel].movingPlatforms || [];
+  for (let m of moves) {
+    if (!m.path || m.path.length < 2) continue;
+    const target = m.path[m.target];
+    const dx = target.x - m.x;
+    const dy = target.y - m.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 1) {
+      m.target = (m.target + 1) % m.path.length;
+      continue;
+    }
+    const stepX = (dx / dist) * m.speed;
+    const stepY = (dy / dist) * m.speed;
+    m.x += stepX;
+    m.y += stepY;
+    m.vx = stepX;
+    m.vy = stepY;
+  }
+}
+
+function handleJumpPads() {
+  const pads = levels[currentLevel].jumpPads || [];
+  for (let pad of pads) {
+    const onPad =
+      player.x + player.r > pad.x &&
+      player.x - player.r < pad.x + pad.w &&
+      player.y + player.r > pad.y &&
+      player.y + player.r < pad.y + pad.h + 12;
+    if (onPad && player.vy >= 0) {
+      player.vy = pad.power;
+      player.onGround = false;
+      player.jumpsUsed = 1;
+      playTone(620, 0.12, 0.12);
+      if (characterChoice === "bart") player.momentum = Math.min(player.momentum + 1, 3);
+    }
+  }
+}
+
+function handleHazards() {
+  const spikes = levels[currentLevel].hazards || [];
+  for (let hz of spikes) {
+    if (player.invincible > 0 || player.helperBuff > 0) continue;
+    const touching =
+      player.x + player.r > hz.x &&
+      player.x - player.r < hz.x + hz.w &&
+      player.y + player.r > hz.y;
+    if (touching) {
+      player.health--;
+      player.invincible = 60;
+      player.vy = -10;
+      playHitSound();
+      if (player.health <= 0) {
+        gameState = "dead";
+        musicPlaying = false;
+      }
+    }
+  }
+}
+
 function applyPhysics() {
+  applyCharacterTraits();
   player.vy += 0.7;
 
   if (keys["ArrowLeft"] || keys["KeyA"]) { player.vx = -player.speed; facingDir = -1; }
   else if (keys["ArrowRight"] || keys["KeyD"]) { player.vx = player.speed; facingDir = 1; }
   else player.vx = 0;
 
+  if (characterChoice === "bart") {
+    if (player.onGround && Math.abs(player.vx) > 0) {
+      player.momentum = Math.min(player.momentum + 0.02, 3);
+    } else {
+      player.momentum = Math.max(player.momentum - 0.03, 0);
+    }
+  }
+
+  if (characterChoice === "unicorn" && player.vy > 0 && (keys["Space"] || keys["ArrowUp"])) {
+    player.vy *= 0.92;
+    player.glide = true;
+  } else {
+    player.glide = false;
+  }
+
   if (player.shotCooldown > 0) player.shotCooldown--;
   if (keys["KeyF"] && player.shotCooldown === 0) {
-    player.shots.push({ x: player.x, y: player.y - 5, vx: facingDir * 10, r: 8, ttl: 90 });
-    player.shotCooldown = 18;
+    const baseSpeed = characterChoice === "bart" ? 11 : characterChoice === "lisa" ? 9 : 10;
+    const bullet = { x: player.x, y: player.y - 5, vx: facingDir * baseSpeed, r: 8, ttl: 90 };
+    if (characterChoice === "lisa") bullet.slow = true;
+    if (characterChoice === "bart") bullet.pierce = 1;
+    player.shots.push(bullet);
+    player.shotCooldown = characterChoice === "lisa" ? 14 : 18;
     playTone(520, 0.1, 0.09);
   }
 
@@ -463,10 +679,13 @@ function applyPhysics() {
     }
   }
 
-  if (player.onGround && (keys["Space"] || keys["ArrowUp"])) {
+  const jumpKey = keys["Space"] || keys["ArrowUp"];
+  if (jumpKey && !player.jumpHeld && player.jumpsUsed < player.maxJumps) {
     player.vy = player.jumpVel;
+    player.jumpsUsed++;
     playJumpSound();
   }
+  player.jumpHeld = jumpKey;
 
   if (player.rainbowTrail > 0) {
     player.rainbowTrail--;
@@ -487,7 +706,10 @@ function applyPhysics() {
   if (player.shieldTimer > 0) player.shieldTimer--;
   if (player.helperBuff > 0) player.helperBuff--;
 
+  updateMovingPlatforms();
   handlePlatforms();
+  handleJumpPads();
+  handleHazards();
   handleCoins();
   handleEnemies();
   handleShots();
@@ -532,7 +754,7 @@ function updateHelper() {
    PLATFORM COLLISIONS
    ====================================================================== */
 function handlePlatforms() {
-  const platList = levels[currentLevel].platforms;
+  const platList = [...levels[currentLevel].platforms, ...(levels[currentLevel].movingPlatforms || [])];
   player.onGround = false;
 
   for (let p of platList) {
@@ -545,6 +767,8 @@ function handlePlatforms() {
         player.y = p.y - player.r;
         player.vy = 0;
         player.onGround = true;
+        player.jumpsUsed = 0;
+        if (p.vx) player.x += p.vx * 0.6;
       }
     }
   }
@@ -581,7 +805,9 @@ function handleEnemies() {
   for (let e of levels[currentLevel].enemies) {
     if (e.defeated) continue;
 
-    e.x += e.dir * 2;
+    const slowFactor = e.slowTimer && e.slowTimer > 0 ? 0.5 : 1;
+    if (e.slowTimer && e.slowTimer > 0) e.slowTimer--;
+    e.x += e.dir * 2 * slowFactor;
     if (e.x < e.min || e.x > e.max) e.dir *= -1;
 
     if (player.invincible > 0 || player.helperBuff > 0) continue;
@@ -623,7 +849,10 @@ function handleShots() {
       if (s.x + s.r > e.x && s.x - s.r < e.x + e.w &&
           s.y > e.y - 30 && s.y < e.y + e.h + 30) { // vertical leniency
         e.defeated = true;
-        player.shots.splice(i, 1);
+        if (s.slow) e.slowTimer = 240;
+        if (!s.pierce || --s.pierce <= 0) {
+          player.shots.splice(i, 1);
+        }
         playHitSound();
         break;
       }
@@ -635,7 +864,9 @@ function handleShots() {
       const dy = s.y - boss.y;
       if (Math.abs(dx) < 60 && Math.abs(dy) < 70) {
         boss.health--;
-        player.shots.splice(i, 1);
+        if (!s.pierce || --s.pierce <= 0) {
+          player.shots.splice(i, 1);
+        }
         playTone(720, 0.12, 0.12);
 
         if (boss.health <= 0) {
@@ -1120,7 +1351,7 @@ function drawLevel() {
 
   drawBackdrop(camX);
 
-  // platforms with faux depth
+  // static platforms with faux depth
   for (let p of lvl.platforms) {
     const platX = p.x - camX;
     const grad = ctx.createLinearGradient(platX, p.y, platX, p.y + p.h);
@@ -1147,6 +1378,45 @@ function drawLevel() {
     ctx.lineTo(platX + 12, p.y + 12);
     ctx.closePath();
     ctx.fill();
+  }
+
+  // moving platforms
+  for (let m of (lvl.movingPlatforms || [])) {
+    const platX = m.x - camX;
+    const grad = ctx.createLinearGradient(platX, m.y, platX, m.y + m.h);
+    grad.addColorStop(0, "#4ea8de");
+    grad.addColorStop(1, "#1d3557");
+    ctx.fillStyle = grad;
+    ctx.fillRect(platX, m.y, m.w, m.h);
+    ctx.fillStyle = "rgba(255,255,255,0.2)";
+    ctx.fillRect(platX, m.y, m.w, 6);
+  }
+
+  // jump pads
+  for (let pad of (lvl.jumpPads || [])) {
+    const padX = pad.x - camX;
+    const g = ctx.createLinearGradient(padX, pad.y, padX, pad.y + pad.h);
+    g.addColorStop(0, "#ff9f1c");
+    g.addColorStop(1, "#ff4040");
+    ctx.fillStyle = g;
+    ctx.fillRect(padX, pad.y, pad.w, pad.h);
+    ctx.fillStyle = "rgba(255,255,255,0.45)";
+    ctx.fillRect(padX, pad.y, pad.w, 4);
+  }
+
+  // hazards
+  for (let hz of (lvl.hazards || [])) {
+    const hx = hz.x - camX;
+    ctx.fillStyle = "#b23a48";
+    ctx.beginPath();
+    for (let i = 0; i < hz.w; i += 20) {
+      ctx.moveTo(hx + i, hz.y + hz.h);
+      ctx.lineTo(hx + i + 10, hz.y + 12);
+      ctx.lineTo(hx + i + 20, hz.y + hz.h);
+    }
+    ctx.fill();
+    ctx.fillStyle = "#ffe066";
+    ctx.fillRect(hx, hz.y + hz.h - 6, hz.w, 6);
   }
 
   // coins
@@ -1241,8 +1511,8 @@ function drawTitleScreen() {
   // Controls
   ctx.fillStyle = "rgba(255,255,255,0.7)";
   ctx.font = "18px sans-serif";
-  ctx.fillText("Arrows/A-D to Move  •  Space to Jump  •  F to Fire  •  Q Special", 140, 460);
-  ctx.fillText("Chief Wiggum will back you up starting Level 2!", 210, 485);
+  ctx.fillText("Arrows/A-D to Move  •  Space to Jump/Glide  •  F to Fire  •  Q Special", 120, 460);
+  ctx.fillText("Ride moving platforms, launch off orange pads, avoid spikes!", 170, 485);
 }
 
 /* ======================================================================
