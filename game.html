@@ -1037,37 +1037,90 @@ function drawHUD() {
   }
 }
 
+function drawBackdrop(camX) {
+  const horizon = 170;
+
+  // sky gradient
+  const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  sky.addColorStop(0, "#7fc8f8");
+  sky.addColorStop(1, "#c7e9fb");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // distant mountains with subtle parallax
+  const mountainOffset = camX * 0.15;
+  ctx.fillStyle = "#7ba2d4";
+  ctx.beginPath();
+  ctx.moveTo(-200 - mountainOffset, horizon + 30);
+  ctx.lineTo(150 - mountainOffset, 80);
+  ctx.lineTo(420 - mountainOffset, horizon + 30);
+  ctx.lineTo(canvas.width + 200 - mountainOffset, horizon + 30);
+  ctx.lineTo(canvas.width + 200 - mountainOffset, canvas.height);
+  ctx.lineTo(-200 - mountainOffset, canvas.height);
+  ctx.fill();
+
+  ctx.fillStyle = "#5f7bb5";
+  ctx.beginPath();
+  ctx.moveTo(50 - mountainOffset * 0.7, horizon + 60);
+  ctx.lineTo(320 - mountainOffset * 0.7, 120);
+  ctx.lineTo(620 - mountainOffset * 0.7, horizon + 60);
+  ctx.lineTo(canvas.width + 100 - mountainOffset * 0.7, horizon + 60);
+  ctx.lineTo(canvas.width + 100 - mountainOffset * 0.7, canvas.height);
+  ctx.lineTo(50 - mountainOffset * 0.7, canvas.height);
+  ctx.fill();
+
+  // perspective floor plane to give a 3D feel
+  const groundGrad = ctx.createLinearGradient(0, horizon, 0, canvas.height);
+  groundGrad.addColorStop(0, "#2f4f4f");
+  groundGrad.addColorStop(1, "#0f1f1f");
+  ctx.fillStyle = groundGrad;
+  ctx.beginPath();
+  ctx.moveTo(0, horizon);
+  ctx.lineTo(canvas.width, horizon);
+  ctx.lineTo(canvas.width + 80, canvas.height);
+  ctx.lineTo(-80, canvas.height);
+  ctx.closePath();
+  ctx.fill();
+
+  // perspective grid lines
+  ctx.strokeStyle = "rgba(255,255,255,0.12)";
+  ctx.lineWidth = 1;
+  const vanishingX = canvas.width / 2;
+  for (let i = -2; i <= 14; i++) {
+    const t = i / 14;
+    const startX = vanishingX + (t - 0.5) * canvas.width * 1.6;
+    ctx.beginPath();
+    ctx.moveTo(startX, horizon);
+    ctx.lineTo(startX * 1.05, canvas.height);
+    ctx.stroke();
+  }
+  for (let i = 0; i < 10; i++) {
+    const lerp = i / 10;
+    const y = horizon + (canvas.height - horizon) * Math.pow(lerp, 1.4);
+    ctx.beginPath();
+    ctx.moveTo(-80, y);
+    ctx.lineTo(canvas.width + 80, y);
+    ctx.stroke();
+  }
+}
+
+function drawShadow(x, y, radius) {
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
+  ctx.scale(1, 0.35);
+  ctx.beginPath();
+  ctx.ellipse(x, (y + radius + 6) / 0.35, radius * 1.2, radius * 0.9, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 function drawLevel() {
   const lvl = levels[currentLevel];
   const camX = Math.max(0, Math.min(player.x - 300, lvl.width - canvas.width));
 
-  // sky
-  const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  sky.addColorStop(0, "#7fc8f8");
-  sky.addColorStop(1, "#e0f3ff");
-  ctx.fillStyle = sky;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drawBackdrop(camX);
 
-  // parallax hills
-  ctx.fillStyle = "#8bd3dd";
-  ctx.beginPath();
-  ctx.moveTo(-50, 320);
-  ctx.quadraticCurveTo(200, 250, 450, 320);
-  ctx.quadraticCurveTo(700, 390, 1000, 320);
-  ctx.lineTo(1000, canvas.height);
-  ctx.lineTo(-50, canvas.height);
-  ctx.fill();
-
-  ctx.fillStyle = "#5aa9e6";
-  ctx.beginPath();
-  ctx.moveTo(200, 360);
-  ctx.quadraticCurveTo(450, 280, 700, 360);
-  ctx.quadraticCurveTo(900, 420, 1200, 360);
-  ctx.lineTo(1200, canvas.height);
-  ctx.lineTo(200, canvas.height);
-  ctx.fill();
-
-  // platforms
+  // platforms with faux depth
   for (let p of lvl.platforms) {
     const platX = p.x - camX;
     const grad = ctx.createLinearGradient(platX, p.y, platX, p.y + p.h);
@@ -1079,15 +1132,32 @@ function drawLevel() {
     ctx.fillRect(platX, p.y, p.w, 8);
     ctx.fillStyle = "rgba(0,0,0,0.25)";
     ctx.fillRect(platX, p.y + p.h - 6, p.w, 6);
+    ctx.fillStyle = "rgba(0,0,0,0.18)";
+    ctx.beginPath();
+    ctx.moveTo(platX + p.w, p.y + p.h);
+    ctx.lineTo(platX + p.w + 16, p.y + p.h + 16);
+    ctx.lineTo(platX + p.w + 16, p.y + 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    ctx.beginPath();
+    ctx.moveTo(platX, p.y);
+    ctx.lineTo(platX + p.w, p.y);
+    ctx.lineTo(platX + p.w + 12, p.y + 12);
+    ctx.lineTo(platX + 12, p.y + 12);
+    ctx.closePath();
+    ctx.fill();
   }
 
   // coins
   for (let c of lvl.coins) {
+    drawShadow(c.x - camX, c.y + 10, 10);
     drawCoin({x: c.x - camX, y: c.y, taken: c.taken});
   }
 
   // enemies
   for (let e of lvl.enemies) {
+    drawShadow(e.x - camX + e.w / 2, e.y + e.h, 18);
     drawEnemy({x: e.x - camX, y: e.y, w:e.w, h:e.h});
   }
 
@@ -1117,6 +1187,7 @@ function drawLevel() {
 
   // player (with invincibility flicker)
   if (player.invincible === 0 || player.invincible % 10 < 5) {
+    drawShadow(player.x - camX, player.y, player.r);
     drawCharacterBall(player.x - camX, player.y, player.r, characterChoice);
   }
 
@@ -1178,42 +1249,100 @@ function drawTitleScreen() {
    CHARACTER SELECT SCREEN
    ====================================================================== */
 
+const selectionCards = [
+  { key: "bart", x: 70 },
+  { key: "lisa", x: 330 },
+  { key: "unicorn", x: 590 }
+];
+
+function drawCard(profile, type, x, y, width, height, isActive) {
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  ctx.shadowColor = "rgba(0,0,0,0.35)";
+  ctx.shadowBlur = 14;
+  ctx.shadowOffsetY = 6;
+  ctx.beginPath();
+  ctx.roundRect(x, y, width, height, 12);
+  ctx.fill();
+  ctx.restore();
+
+  const accent = isActive ? "#ffd166" : "#fafafa";
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  ctx.beginPath();
+  ctx.roundRect(x + 4, y + 4, width - 8, height - 8, 10);
+  ctx.fill();
+
+  drawShadow(x + width / 2, y + 95, 24);
+  drawCharacterBall(x + width / 2, y + 80, 32, type);
+
+  ctx.fillStyle = accent;
+  ctx.font = "18px sans-serif";
+  ctx.fillText(profile.label, x + 12, y + 140);
+  ctx.fillStyle = "#e0e0e0";
+  ctx.font = "16px sans-serif";
+  ctx.fillText(profile.specialName, x + 12, y + 166);
+
+  ctx.fillStyle = "#cdd0d4";
+  ctx.font = "14px sans-serif";
+  const descWidth = width - 24;
+  const words = profile.description.split(" ");
+  let line = "";
+  let lineY = y + 194;
+  for (let word of words) {
+    const testLine = line + word + " ";
+    if (ctx.measureText(testLine).width > descWidth) {
+      ctx.fillText(line, x + 12, lineY);
+      line = word + " ";
+      lineY += 18;
+    } else {
+      line = testLine;
+    }
+  }
+  if (line) ctx.fillText(line, x + 12, lineY);
+}
+
 function drawCharacterSelect() {
-  ctx.fillStyle = "#333";
+  ctx.fillStyle = "#1b263b";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  ctx.fillStyle = "white";
+  ctx.fillStyle = "#ffd166";
   ctx.font = "32px sans-serif";
-  ctx.fillText("Choose Your Character!", 260, 60);
+  ctx.fillText("Choose Your Character!", 250, 70);
 
-  drawCharacterBall(200, 250, 35, "bart");
-  drawCharacterBall(450, 250, 35, "lisa");
-  drawCharacterBall(700, 250, 35, "unicorn");
+  ctx.fillStyle = "#f1faee";
+  ctx.font = "18px sans-serif";
+  ctx.fillText("Click a card to lock in your hero", 310, 100);
 
-  ctx.font = "20px sans-serif";
-  ctx.fillText(characterProfiles.bart.label + " - " + characterProfiles.bart.specialName, 90, 310);
-  ctx.fillText(characterProfiles.lisa.label + " - " + characterProfiles.lisa.specialName, 340, 310);
-  ctx.fillText(characterProfiles.unicorn.label + " - " + characterProfiles.unicorn.specialName, 565, 310);
+  const cardY = 120;
+  const cardW = 220;
+  const cardH = 240;
 
-  ctx.font = "16px sans-serif";
+  for (let card of selectionCards) {
+    const profile = characterProfiles[card.key];
+    const active = characterChoice === card.key;
+    drawCard(profile, card.key, card.x, cardY, cardW, cardH, active);
+
+    ctx.strokeStyle = active ? "#ffd166" : "rgba(255,255,255,0.3)";
+    ctx.lineWidth = active ? 4 : 2;
+    ctx.strokeRect(card.x + 2, cardY + 2, cardW - 4, cardH - 4);
+  }
+
   ctx.fillStyle = "#e0e0e0";
-  ctx.fillText(characterProfiles.bart.description, 120, 340);
-  ctx.fillText(characterProfiles.lisa.description, 360, 340);
-  ctx.fillText(characterProfiles.unicorn.description, 600, 340);
+  ctx.font = "16px sans-serif";
+  ctx.fillText("Press space to jump • F to fire • Q to use your special", 220, 400);
+  ctx.fillText("Click your pick to start the adventure!", 300, 430);
 
   canvas.onclick = function(ev) {
-    const x = ev.offsetX;
-    const y = ev.offsetY;
-
-    const withinRow = y > 200 && y < 320;
-
-    if (withinRow && x > 160 && x < 240) characterChoice = "bart";
-    if (withinRow && x > 410 && x < 490) characterChoice = "lisa";
-    if (withinRow && x > 660 && x < 740) characterChoice = "unicorn";
-
-    gameState = "play";
-    startMusic();
-    canvas.onclick = null;
+    const { offsetX: x, offsetY: y } = ev;
+    for (let card of selectionCards) {
+      if (x >= card.x && x <= card.x + cardW && y >= cardY && y <= cardY + cardH) {
+        characterChoice = card.key;
+        gameState = "play";
+        startMusic();
+        canvas.onclick = null;
+        return;
+      }
+    }
   };
 }
 
